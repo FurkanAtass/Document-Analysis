@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 from PIL import Image
-from dataset import image_to_patches
+from dataset import image_to_patches, recompose_patches
 
 MODEL_PATH = 'unet_dibco_last.pth'
 BATCH_SIZE = 16
@@ -13,15 +13,6 @@ IMAGE_PATH = "DAVU-UE1/dibco2009/DIBC02009_Test_images-handwritten/dibco_img0003
 OUTPUT_DIR = "output"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-def recompose_patches(patches, padded_shape, patch_h, patch_w):
-    n_h = padded_shape[0] // patch_h
-    n_w = padded_shape[1] // patch_w
-    patches = patches.reshape(n_h, n_w, patch_h, patch_w)
-    patches = patches.transpose(0, 2, 1, 3)
-    full = patches.reshape(padded_shape)
-    return full 
-
 
 def load_model(checkpoint_path, device):
     model = torch.hub.load(

@@ -21,6 +21,14 @@ def image_to_patches(img, patch_h, patch_w):
     patches = patches.reshape(-1, patch_h, patch_w)
     return patches, padded.shape, pad
 
+def recompose_patches(patches, padded_shape, patch_h, patch_w):
+    n_h = padded_shape[0] // patch_h
+    n_w = padded_shape[1] // patch_w
+    patches = patches.reshape(n_h, n_w, patch_h, patch_w)
+    patches = patches.transpose(0, 2, 1, 3)
+    full = patches.reshape(padded_shape)
+    return full 
+
 def get_train_val_data(
         dataset_dir,
         patch_size=(256, 256),
