@@ -9,7 +9,7 @@ BATCH_SIZE = 16
 PATCH_SIZE = 256
 THRESHOLD = 0.5
 THRESHOLD_MODE = 'mean'  # options: 'fixed', 'mean'
-IMAGE_PATH = "DAVU-UE1/dibco2009/DIBC02009_Test_images-handwritten/dibco_img0003.tif"
+IMAGE_PATH = "DAVU-UE1/dibco2009/DIBC02009_Test_images-handwritten/dibco_img0001.tif"
 OUTPUT_DIR = "output"
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
