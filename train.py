@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 from dice_loss import BinaryDiceLoss
 from torch.utils.data import DataLoader
-from preprocess import get_train_val_data
+from dataset import get_train_val_data
 
 Dataset_dir = './DIBCO/'   
 patch_size  = 256
@@ -17,7 +17,7 @@ val_split_size = 0.2
 
 BATCH_SIZE = 16
 NUM_EPOCHS = 100
-LR = 5e-4
+LR = 1e-3
 
 torch.manual_seed(seed)
 np.random.seed(seed)
@@ -90,7 +90,7 @@ model = torch.hub.load('mateuszbuda/brain-segmentation-pytorch', 'unet',
 model.to(device)
 model.train()
 
-bceloss = torch.nn.BCELoss()
+bceloss = torch.nn.BCEWithLogitsLoss()
 dice_loss = BinaryDiceLoss()
 
 optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
@@ -104,14 +104,16 @@ for epoch in range(NUM_EPOCHS):
         images, masks = images.to(device), masks.to(device)
         optimizer.zero_grad()
         outputs = model(images)
-        loss = bceloss(outputs, masks) + dice_loss(outputs, masks)
+        loss = bceloss(outputs, masks) + dice_loss(torch.sigmoid(outputs), masks)
         loss.backward()
         optimizer.step()
-        scheduler.step()
         epoch_loss += loss.item()
+
+    scheduler.step()
 
     avg_epoch_loss = epoch_loss / len(train_loader)
     print(f"Epoch [{epoch+1}/{NUM_EPOCHS}], Loss: {avg_epoch_loss:.4f}")
+    print(f"BCE Loss: {bceloss(outputs, masks).item():.4f}, Dice Loss: {dice_loss(torch.sigmoid(outputs), masks).item():.4f}")
     train_losses.append(avg_epoch_loss)
 
     model.eval()
