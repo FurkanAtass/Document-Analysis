@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
-from scipy.ndimage import generic_filter
+from scipy.ndimage import generic_filter, distance_transform_cdt, binary_erosion
 import os
 from skimage.morphology import skeletonize
 
@@ -112,11 +112,32 @@ def load_test_gt(test_dir):
     test_images, gt_images = [], []
     for filename in sorted([f for f in os.listdir(test_dir) if not f.endswith('_gt.tif')]):
         test_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
-    gt_dir = os.path.join(test_dir, 'gt')
     for filename in sorted([f for f in os.listdir(test_dir) if f.endswith('_gt.tif')]):
         gt_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
     return (test_images, gt_images)
 
+def compute_mpm(pred_binary, gt_binary):
+    pred_binary = pred_binary.astype(bool)
+    gt_binary = gt_binary.astype(bool)
+
+    structure = np.ones((3, 3), dtype=bool)
+    gt_eroded = binary_erosion(gt_binary, structure=structure, border_value=0)
+    gt_contour = gt_binary & ~gt_eroded
+
+    dist = distance_transform_cdt(~gt_contour, metric='chessboard')
+
+    fn = gt_binary & ~pred_binary
+    fp = pred_binary & ~gt_binary
+
+    D = dist[gt_binary].sum()
+
+    if D == 0:
+        return 0.0
+
+    mp_fn = dist[fn].sum() / D
+    mp_fp = dist[fp].sum() / D
+
+    return (mp_fn + mp_fp) / 2
 
 def evaluate(test_images, gt_images, log=False):
     f_measures = []
@@ -125,29 +146,36 @@ def evaluate(test_images, gt_images, log=False):
     recalls = []
     psnrs = []
     nrms = []
+    mpms = []
     assert len(test_images) == len(gt_images), "Mismatch between number of test and ground truth images"
    
     i = 1
     for test_img, gt_img in zip(test_images, gt_images): 
         pred = Su(test_img)
 
-        pred_binary = pred<127
-        gt_binary = gt_img<127
+        pred_binary_foreground = pred<127
+        gt_binary_foreground = gt_img<127
 
-        ctp = np.sum(pred_binary * gt_binary)
-        cfp = np.sum(pred_binary * (1-gt_binary))
-        cfn = np.sum((1-pred_binary) * gt_binary)
-        ctn = np.sum((1-pred_binary) * (1-gt_binary))
+        gt_binary_background = gt_img>=127
+        pred_binary_background = pred>=127
+
+        ctp = np.sum(pred_binary_foreground * gt_binary_foreground)
+        cfp = np.sum(pred_binary_foreground * (1-gt_binary_foreground))
+        cfn = np.sum((1-pred_binary_foreground) * gt_binary_foreground)
+        ctn = np.sum((1-pred_binary_foreground) * (1-gt_binary_foreground))
 
         rc = ctp / (ctp + cfn) if (ctp + cfn) > 0 else 0.0
         pr = ctp / (ctp + cfp) if (ctp + cfp) > 0 else 0.0
 
+        mpm = compute_mpm(pred_binary_background, gt_binary_background)
+        mpms.append(mpm)
+
         f_m = (2 * rc * pr) / (rc + pr)
         f_measures.append(f_m)
 
-        gt_skeleton = skeletonize(gt_binary)
+        gt_skeleton = skeletonize(gt_binary_foreground)
         gt_skeleton_sum = np.sum(gt_skeleton)
-        pseudo_rc = np.sum(gt_skeleton * pred_binary)/gt_skeleton_sum if gt_skeleton_sum > 0 else 0
+        pseudo_rc = np.sum(gt_skeleton * pred_binary_foreground)/gt_skeleton_sum if gt_skeleton_sum > 0 else 0
         pseudo_f_m = (2 * pseudo_rc * pr)/(pseudo_rc + pr) if (pseudo_rc + pr) > 0 else 0.0
         pseudo_f_measures.append(pseudo_f_m)
 
@@ -159,7 +187,7 @@ def evaluate(test_images, gt_images, log=False):
         nrm = (nr_fn + nr_fp) / 2
         nrms.append(nrm)
 
-        mse = np.mean(pred_binary != gt_binary)
+        mse = np.mean(pred_binary_foreground != gt_binary_foreground)
         psnr = 10 * np.log10(1.0 / mse) if mse > 0 else 0.0
         psnrs.append(psnr) 
 
@@ -168,7 +196,7 @@ def evaluate(test_images, gt_images, log=False):
             print(f'Image {i}:')
             print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {pseudo_f_m:.2f}\n'
                   f'P: {pr:.2f}\nR: {rc}\nPSNR: {psnr:.2f}\n'
-                  f'NRM: {nrm:.3f}')
+                  f'NRM: {nrm:.3f}\nMPM: {mpm:.6f}')
             print('-------------------------------')
             i = i+1
 
@@ -177,7 +205,8 @@ def evaluate(test_images, gt_images, log=False):
             np.mean(np.array(precisions)),
             np.mean(np.array(recalls)),
             np.mean(np.array(psnrs)),
-            np.mean(np.array(nrms)))
+            np.mean(np.array(nrms)),
+            np.mean(np.array(mpms)))
 
 
 def main():
@@ -185,16 +214,16 @@ def main():
     handwritten_dir = os.path.join(dibco_dir, 'DIBC02009_Test_images-handwritten')
     handwritten_test, handwritten_gt = load_test_gt(handwritten_dir)
     print('1. Handwritten')
-    f_m, p_f_m, p, r, psnr, nrm = evaluate(handwritten_test, handwritten_gt, log=False)
+    f_m, p_f_m, p, r, psnr, nrm, mpm = evaluate(handwritten_test, handwritten_gt, log=False)
     print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.3f}\n')
+    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.6f}\nMPM: {mpm*10**3:.2f} * 10^-3\n')
     
     printed_dir = os.path.join(dibco_dir, 'DIBCO2009_Test_images-printed')
     printed_test, printed_gt = load_test_gt(printed_dir)
     print('2. Printed')
-    f_m, p_f_m, p, r, psnr, nrm = evaluate(printed_test, printed_gt, log=False)
+    f_m, p_f_m, p, r, psnr, nrm, mpm = evaluate(printed_test, printed_gt, log=False)
     print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.3f}\n')
+    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.6f}\nMPM: {mpm*10**3:.2f} * 10^-3\n')
 
 
 

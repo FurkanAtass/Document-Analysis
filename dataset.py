@@ -53,41 +53,51 @@ def get_train_val_data(
     return train_dataset, val_dataset
 
 class DIBCODataset(Dataset):
-    def __init__(self, images, masks,patch_size=(256, 256), transform=None, test_year=2009):
+    def __init__(self, images, masks, patch_size=(256, 256), transform=None, test_year=2009):
         self.patch_size = patch_size
         self.transform = transform
-        self.images, self.masks = self._prepare_patches(images, masks)
-
-    def _prepare_patches(self, full_images, full_masks):
-        all_image_patches = []
-        all_mask_patches = []
-        for img, msk in zip(full_images, full_masks):
-            img_patches, _, _ = image_to_patches(img, self.patch_size, self.patch_size)
-            msk_patches, _, _ = image_to_patches(msk, self.patch_size, self.patch_size)
-            all_image_patches.append(img_patches)
-            all_mask_patches.append(msk_patches)
-
-        all_image_patches = np.vstack(all_image_patches)
-        all_mask_patches = np.vstack(all_mask_patches)
-        return all_image_patches, all_mask_patches
+        self.full_images = images
+        self.full_masks = masks
+        
+        # Compute number of patches per image to map flat indices to image/patch pairs
+        self.patch_counts = []
+        self.cumulative_patches = [0]
+        for img in images:
+            padded, _ = pad_image_to_patch_size(img, patch_size[0], patch_size[1])
+            n_patches = (padded.shape[0] // patch_size[0]) * (padded.shape[1] // patch_size[1])
+            self.patch_counts.append(n_patches)
+            self.cumulative_patches.append(self.cumulative_patches[-1] + n_patches)
 
     def __len__(self):
-        return len(self.images)
+        return self.cumulative_patches[-1]
 
     def __getitem__(self, idx):
-        image = self.images[idx]
-        mask = self.masks[idx]
+        # Find which image this patch belongs to
+        img_idx = 0
+        for i, cumsum in enumerate(self.cumulative_patches[:-1]):
+            if idx >= cumsum and idx < self.cumulative_patches[i+1]:
+                img_idx = i
+                break
+        
+        # Get the patch index within this image
+        patch_idx = idx - self.cumulative_patches[img_idx]
+        
+        # Get patches for this image on-demand
+        img_patches, _, _ = image_to_patches(self.full_images[img_idx], self.patch_size[0], self.patch_size[1])
+        msk_patches, _, _ = image_to_patches(self.full_masks[img_idx], self.patch_size[0], self.patch_size[1])
+        
+        image = img_patches[patch_idx]
+        mask = msk_patches[patch_idx]
         
         if self.transform is not None:
             image = Image.fromarray(image.astype(np.uint8))
             mask = Image.fromarray(mask.astype(np.uint8))
-
             image, mask = self.transform(image, mask)
         else:
-            image = self.images[idx].astype(np.float32) / 255.0
+            image = image.astype(np.float32) / 255.0
             image = torch.from_numpy(image).unsqueeze(0)
             
-            mask = self.masks[idx].astype(np.float32) / 255.0
+            mask = mask.astype(np.float32) / 255.0
             mask = torch.from_numpy(mask).unsqueeze(0)
 
         return image, mask
