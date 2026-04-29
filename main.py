@@ -116,6 +116,60 @@ def load_test_gt(test_dir):
         gt_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
     return (test_images, gt_images)
 
+def compute_confusion_counts(pred_binary, gt_binary):
+    pred_binary = pred_binary.astype(bool)
+    gt_binary = gt_binary.astype(bool)
+
+    tp = np.sum(pred_binary & gt_binary)
+    fp = np.sum(pred_binary & ~gt_binary)
+    fn = np.sum(~pred_binary & gt_binary)
+    tn = np.sum(~pred_binary & ~gt_binary)
+
+    return tp, fp, fn, tn
+
+def compute_precision(pred_binary, gt_binary):
+    tp, fp, _, _ = compute_confusion_counts(pred_binary, gt_binary)
+    return tp / (tp + fp) if (tp + fp) > 0 else 0.0
+
+def compute_recall(pred_binary, gt_binary):
+    tp, _, fn, _ = compute_confusion_counts(pred_binary, gt_binary)
+    return tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+def compute_f_measure(pred_binary, gt_binary):
+    precision = compute_precision(pred_binary, gt_binary)
+    recall = compute_recall(pred_binary, gt_binary)
+    return (2 * recall * precision) / (recall + precision) if (recall + precision) > 0 else 0.0
+
+def compute_pseudo_f_measure(pred_binary, gt_binary):
+    precision = compute_precision(pred_binary, gt_binary)
+    gt_skeleton = skeletonize(gt_binary.astype(bool))
+    gt_skeleton_sum = np.sum(gt_skeleton)
+
+    pseudo_recall = (
+        np.sum(gt_skeleton & pred_binary.astype(bool)) / gt_skeleton_sum
+        if gt_skeleton_sum > 0 else 0.0
+    )
+
+    return (
+        (2 * pseudo_recall * precision) / (pseudo_recall + precision)
+        if (pseudo_recall + precision) > 0 else 0.0
+    )
+
+def compute_nrm(pred_binary, gt_binary):
+    tp, fp, fn, tn = compute_confusion_counts(pred_binary, gt_binary)
+
+    nr_fn = fn / (fn + tp) if (fn + tp) > 0 else 0.0
+    nr_fp = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+
+    return (nr_fn + nr_fp) / 2
+
+def compute_psnr(pred_binary, gt_binary):
+    pred_binary = pred_binary.astype(bool)
+    gt_binary = gt_binary.astype(bool)
+
+    mse = np.mean(pred_binary != gt_binary)
+    return 10 * np.log10(1.0 / mse) if mse > 0 else 0.0
+
 def compute_mpm(pred_binary, gt_binary):
     pred_binary = pred_binary.astype(bool)
     gt_binary = gt_binary.astype(bool)
@@ -159,37 +213,21 @@ def evaluate(test_images, gt_images, log=False):
         gt_binary_background = gt_img>=127
         pred_binary_background = pred>=127
 
-        ctp = np.sum(pred_binary_foreground * gt_binary_foreground)
-        cfp = np.sum(pred_binary_foreground * (1-gt_binary_foreground))
-        cfn = np.sum((1-pred_binary_foreground) * gt_binary_foreground)
-        ctn = np.sum((1-pred_binary_foreground) * (1-gt_binary_foreground))
-
-        rc = ctp / (ctp + cfn) if (ctp + cfn) > 0 else 0.0
-        pr = ctp / (ctp + cfp) if (ctp + cfp) > 0 else 0.0
-
+        pr = compute_precision(pred_binary_foreground, gt_binary_foreground)
+        rc = compute_recall(pred_binary_foreground, gt_binary_foreground)
+        f_m = compute_f_measure(pred_binary_foreground, gt_binary_foreground)
+        pseudo_f_m = compute_pseudo_f_measure(pred_binary_foreground, gt_binary_foreground)
+        nrm = compute_nrm(pred_binary_foreground, gt_binary_foreground)
+        psnr = compute_psnr(pred_binary_foreground, gt_binary_foreground)
         mpm = compute_mpm(pred_binary_background, gt_binary_background)
-        mpms.append(mpm)
 
-        f_m = (2 * rc * pr) / (rc + pr)
         f_measures.append(f_m)
-
-        gt_skeleton = skeletonize(gt_binary_foreground)
-        gt_skeleton_sum = np.sum(gt_skeleton)
-        pseudo_rc = np.sum(gt_skeleton * pred_binary_foreground)/gt_skeleton_sum if gt_skeleton_sum > 0 else 0
-        pseudo_f_m = (2 * pseudo_rc * pr)/(pseudo_rc + pr) if (pseudo_rc + pr) > 0 else 0.0
         pseudo_f_measures.append(pseudo_f_m)
-
         precisions.append(pr)
         recalls.append(rc)
-
-        nr_fn = cfn / (cfn + ctp) if (cfn + ctp) > 0 else 0.0
-        nr_fp = cfp / (cfp + ctn) if (cfp + ctn) > 0 else 0.0
-        nrm = (nr_fn + nr_fp) / 2
         nrms.append(nrm)
-
-        mse = np.mean(pred_binary_foreground != gt_binary_foreground)
-        psnr = 10 * np.log10(1.0 / mse) if mse > 0 else 0.0
-        psnrs.append(psnr) 
+        psnrs.append(psnr)
+        mpms.append(mpm)
 
         if log==True:
             print('-------------------------------')
