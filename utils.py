@@ -1,3 +1,6 @@
+# Adapted from https://github.com/rezazad68/BCDUnet_DIBCO
+# Modified for this task.
+
 import glob
 import random
 import numpy as np
