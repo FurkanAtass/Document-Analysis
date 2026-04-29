@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 import random
+import os
+import cv2
 
 def pad_image_to_patch_size(img, patch_h, patch_w, pad_value=0):
     h, w = img.shape
@@ -102,4 +104,10 @@ class DIBCODataset(Dataset):
 
         return image, mask
 
-        
+def load_test_gt(test_dir):
+    test_images, gt_images = [], []
+    for filename in sorted([f for f in os.listdir(test_dir) if not f.endswith('_gt.tif')]):
+        test_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
+    for filename in sorted([f for f in os.listdir(test_dir) if f.endswith('_gt.tif')]):
+        gt_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
+    return (test_images, gt_images)

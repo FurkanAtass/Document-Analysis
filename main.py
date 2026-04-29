@@ -1,12 +1,19 @@
 import cv2
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
-from scipy.ndimage import generic_filter, distance_transform_cdt, binary_erosion
 import os
-from skimage.morphology import skeletonize
+from dataset import load_test_gt
+from metrics import (
+    compute_f_measure,
+    compute_pseudo_f_measure,
+    compute_precision,
+    compute_recall,
+    compute_psnr,
+    compute_nrm,
+    compute_mpm,
+    print_results
+    )
 
 EPSILON = 1e-8
-
 
 # Uses integral image to compute sum of values of the original image in window around each pixel
 # No padding required beforehand
@@ -108,90 +115,7 @@ def Su(image: np.ndarray) -> np.ndarray:
 
 
 # Load Test and Ground Truth images
-def load_test_gt(test_dir):
-    test_images, gt_images = [], []
-    for filename in sorted([f for f in os.listdir(test_dir) if not f.endswith('_gt.tif')]):
-        test_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
-    for filename in sorted([f for f in os.listdir(test_dir) if f.endswith('_gt.tif')]):
-        gt_images.append(cv2.imread(os.path.join(test_dir, filename), cv2.IMREAD_GRAYSCALE))
-    return (test_images, gt_images)
 
-def compute_confusion_counts(pred_binary, gt_binary):
-    pred_binary = pred_binary.astype(bool)
-    gt_binary = gt_binary.astype(bool)
-
-    tp = np.sum(pred_binary & gt_binary)
-    fp = np.sum(pred_binary & ~gt_binary)
-    fn = np.sum(~pred_binary & gt_binary)
-    tn = np.sum(~pred_binary & ~gt_binary)
-
-    return tp, fp, fn, tn
-
-def compute_precision(pred_binary, gt_binary):
-    tp, fp, _, _ = compute_confusion_counts(pred_binary, gt_binary)
-    return tp / (tp + fp) if (tp + fp) > 0 else 0.0
-
-def compute_recall(pred_binary, gt_binary):
-    tp, _, fn, _ = compute_confusion_counts(pred_binary, gt_binary)
-    return tp / (tp + fn) if (tp + fn) > 0 else 0.0
-
-def compute_f_measure(pred_binary, gt_binary):
-    precision = compute_precision(pred_binary, gt_binary)
-    recall = compute_recall(pred_binary, gt_binary)
-    return (2 * recall * precision) / (recall + precision) if (recall + precision) > 0 else 0.0
-
-def compute_pseudo_f_measure(pred_binary, gt_binary):
-    precision = compute_precision(pred_binary, gt_binary)
-    gt_skeleton = skeletonize(gt_binary.astype(bool))
-    gt_skeleton_sum = np.sum(gt_skeleton)
-
-    pseudo_recall = (
-        np.sum(gt_skeleton & pred_binary.astype(bool)) / gt_skeleton_sum
-        if gt_skeleton_sum > 0 else 0.0
-    )
-
-    return (
-        (2 * pseudo_recall * precision) / (pseudo_recall + precision)
-        if (pseudo_recall + precision) > 0 else 0.0
-    )
-
-def compute_nrm(pred_binary, gt_binary):
-    tp, fp, fn, tn = compute_confusion_counts(pred_binary, gt_binary)
-
-    nr_fn = fn / (fn + tp) if (fn + tp) > 0 else 0.0
-    nr_fp = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-
-    return (nr_fn + nr_fp) / 2
-
-def compute_psnr(pred_binary, gt_binary):
-    pred_binary = pred_binary.astype(bool)
-    gt_binary = gt_binary.astype(bool)
-
-    mse = np.mean(pred_binary != gt_binary)
-    return 10 * np.log10(1.0 / mse) if mse > 0 else 0.0
-
-def compute_mpm(pred_binary, gt_binary):
-    pred_binary = pred_binary.astype(bool)
-    gt_binary = gt_binary.astype(bool)
-
-    structure = np.ones((3, 3), dtype=bool)
-    gt_eroded = binary_erosion(gt_binary, structure=structure, border_value=0)
-    gt_contour = gt_binary & ~gt_eroded
-
-    dist = distance_transform_cdt(~gt_contour, metric='chessboard')
-
-    fn = gt_binary & ~pred_binary
-    fp = pred_binary & ~gt_binary
-
-    D = dist[gt_binary].sum()
-
-    if D == 0:
-        return 0.0
-
-    mp_fn = dist[fn].sum() / D
-    mp_fp = dist[fp].sum() / D
-
-    return (mp_fn + mp_fp) / 2
 
 def evaluate(test_images, gt_images, log=False):
     f_measures = []
@@ -251,17 +175,13 @@ def main():
     dibco_dir = os.path.join(os.path.dirname(__file__), 'DAVU-UE1', 'dibco2009')
     handwritten_dir = os.path.join(dibco_dir, 'DIBC02009_Test_images-handwritten')
     handwritten_test, handwritten_gt = load_test_gt(handwritten_dir)
-    print('1. Handwritten')
-    f_m, p_f_m, p, r, psnr, nrm, mpm = evaluate(handwritten_test, handwritten_gt, log=False)
-    print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.6f}\nMPM: {mpm*10**3:.2f} * 10^-3\n')
-    
+    handwritten_metrics = evaluate(handwritten_test, handwritten_gt, log=False)
+    print_results('1. Handwritten', handwritten_metrics)
+
     printed_dir = os.path.join(dibco_dir, 'DIBCO2009_Test_images-printed')
     printed_test, printed_gt = load_test_gt(printed_dir)
-    print('2. Printed')
-    f_m, p_f_m, p, r, psnr, nrm, mpm = evaluate(printed_test, printed_gt, log=False)
-    print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.6f}\nMPM: {mpm*10**3:.2f} * 10^-3\n')
+    printed_metrics = evaluate(printed_test, printed_gt, log=False)
+    print_results('2. Printed', printed_metrics)
 
 
 
