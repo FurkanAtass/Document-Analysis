@@ -124,6 +124,7 @@ def evaluate(test_images, gt_images, log=False):
     precisions = []
     recalls = []
     psnrs = []
+    nrms = []
     assert len(test_images) == len(gt_images), "Mismatch between number of test and ground truth images"
    
     i = 1
@@ -136,6 +137,7 @@ def evaluate(test_images, gt_images, log=False):
         ctp = np.sum(pred_binary * gt_binary)
         cfp = np.sum(pred_binary * (1-gt_binary))
         cfn = np.sum((1-pred_binary) * gt_binary)
+        ctn = np.sum((1-pred_binary) * (1-gt_binary))
 
         rc = ctp / (ctp + cfn) if (ctp + cfn) > 0 else 0.0
         pr = ctp / (ctp + cfp) if (ctp + cfp) > 0 else 0.0
@@ -152,6 +154,11 @@ def evaluate(test_images, gt_images, log=False):
         precisions.append(pr)
         recalls.append(rc)
 
+        nr_fn = cfn / (cfn + ctp) if (cfn + ctp) > 0 else 0.0
+        nr_fp = cfp / (cfp + ctn) if (cfp + ctn) > 0 else 0.0
+        nrm = (nr_fn + nr_fp) / 2
+        nrms.append(nrm)
+
         mse = np.mean(pred_binary != gt_binary)
         psnr = 10 * np.log10(1.0 / mse) if mse > 0 else 0.0
         psnrs.append(psnr) 
@@ -160,7 +167,8 @@ def evaluate(test_images, gt_images, log=False):
             print('-------------------------------')
             print(f'Image {i}:')
             print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {pseudo_f_m:.2f}\n'
-                  f'P: {pr:.2f}\nR: {rc}\nPSNR: {psnr:.2f}')
+                  f'P: {pr:.2f}\nR: {rc}\nPSNR: {psnr:.2f}\n'
+                  f'NRM: {nrm:.3f}')
             print('-------------------------------')
             i = i+1
 
@@ -168,7 +176,8 @@ def evaluate(test_images, gt_images, log=False):
             np.mean(np.array(pseudo_f_measures)),
             np.mean(np.array(precisions)),
             np.mean(np.array(recalls)),
-            np.mean(np.array(psnrs)))
+            np.mean(np.array(psnrs)),
+            np.mean(np.array(nrms)))
 
 
 def main():
@@ -176,16 +185,16 @@ def main():
     handwritten_dir = os.path.join(dibco_dir, 'DIBC02009_Test_images-handwritten')
     handwritten_test, handwritten_gt = load_test_gt(handwritten_dir)
     print('1. Handwritten')
-    f_m, p_f_m, p, r, psnr = evaluate(handwritten_test, handwritten_gt, log=False)
+    f_m, p_f_m, p, r, psnr, nrm = evaluate(handwritten_test, handwritten_gt, log=False)
     print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\n')
+    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.3f}\n')
     
     printed_dir = os.path.join(dibco_dir, 'DIBCO2009_Test_images-printed')
     printed_test, printed_gt = load_test_gt(printed_dir)
     print('2. Printed')
-    f_m, p_f_m, p, r, psnr = evaluate(printed_test, printed_gt, log=False)
+    f_m, p_f_m, p, r, psnr, nrm = evaluate(printed_test, printed_gt, log=False)
     print('Overall:')
-    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\n')
+    print(f'F-Score: {f_m:.2f}\npseudo-F-Score: {p_f_m:.2f}\nP: {p:.2f}\nR: {r}\nPSNR: {psnr:.2f}\nNRM: {nrm:.3f}\n')
 
 
 
